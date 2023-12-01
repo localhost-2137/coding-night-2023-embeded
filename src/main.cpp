@@ -34,8 +34,12 @@ unsigned long dstLastDelay;
 unsigned long sendDataDelay = 5000;
 unsigned long lastDataSent;
 
+#define EMPTY_ROOM_WH 0.289351852
+#define CROUDED_ROOM_WH 0.367241436 
+
 double avgWattHours = 0.289351852;
 double currentWattHours = avgWattHours;
+bool roomPresence = false;
 
 void setup() {
   Serial.begin(115200);
@@ -97,6 +101,7 @@ void loop() {
     readTemp();
   }
   moveDetection();
+  simulateWattHours();
 
   if (millis() - lastDataSent >= sendDataDelay) {
     lastDataSent = millis();
@@ -119,7 +124,13 @@ void loop() {
 }
 
 void simulateWattHours() {
+  double randomInc = random(-5000, 5000) / 1000000.0;
+  avgWattHours = roomPresence ? CROUDED_ROOM_WH : EMPTY_ROOM_WH;
+  if ((currentWattHours > avgWattHours && randomInc > 0) || (currentWattHours < avgWattHours && randomInc < 0)) {
+    randomInc *= -1;
+  }
 
+  currentWattHours += randomInc;
 }
 
 void moveDetection() {
