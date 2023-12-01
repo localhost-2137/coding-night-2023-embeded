@@ -6,11 +6,14 @@
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 
-#define TRIG_PIN 2
+#define TRIG_PIN 5
 #define ECHO_PIN 4
 #define DHT_PIN 15
+#define LED_PIN LED_BUILTIN
 
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
+void moveDetection();
+void simulateWattHours();
 unsigned long measureDistance();
 String getChipID();
 void readTemp();
@@ -31,9 +34,13 @@ unsigned long dstLastDelay;
 unsigned long sendDataDelay = 5000;
 unsigned long lastDataSent;
 
+double avgWattHours = 0.289351852;
+double currentWattHours = avgWattHours;
+
 void setup() {
   Serial.begin(115200);
   pinMode(TRIG_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
 
   dht.begin();
@@ -48,7 +55,7 @@ void setup() {
   new (&custom_field) WiFiManagerParameter(custom_html.c_str());
   
   wm.addParameter(&custom_field);
-  wm.resetSettings();
+  // wm.resetSettings();
 
   String ssid = "Smarty-" + getChipID();
   bool res = wm.autoConnect(ssid.c_str());
@@ -57,7 +64,7 @@ void setup() {
     ESP.restart();
   }
 
-  webSocket.begin("10.42.0.1", 8080, "/");
+  webSocket.begin("10.42.0.1", 3000, "/ws");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
   webSocket.sendTXT("Hello from ESP32!");
@@ -89,32 +96,18 @@ void loop() {
   if (millis() - dhtLastRead >= dhtDelay) {
     readTemp();
   }
-
-  unsigned long currDst = measureDistance();
-  if (abs(lastDst - currDst * 1.0f) > 10 && millis() - dstLastDelay > dstDelay) {
-    Serial.println("MOVE DETECTED!");
-    dstLastDelay = millis();
-
-    DynamicJsonDocument doc(256);
-    doc["deviceId"] = ESP.getEfuseMac();
-    doc["type"] = "move";
-
-    String json;
-    serializeJson(doc, json);
-
-    webSocket.sendTXT(json);
-  }
-  lastDst = currDst;
+  moveDetection();
 
   if (millis() - lastDataSent >= sendDataDelay) {
     lastDataSent = millis();
 
     DynamicJsonDocument doc(256);
   
-    doc["deviceId"] = ESP.getEfuseMac();
+    doc["device_id"] = ESP.getEfuseMac();
     doc["type"] = "temp";
     doc["data"]["temp"] = currentTemperature;
     doc["data"]["hum"] = currentHumidity;
+    doc["data"]["wh"] = currentWattHours;
 
     String json;
     serializeJson(doc, json);
@@ -123,6 +116,32 @@ void loop() {
   }
 
   delay(50);
+}
+
+void simulateWattHours() {
+
+}
+
+void moveDetection() {
+  unsigned long currDst = measureDistance();
+  if (abs(lastDst - currDst * 1.0f) > 10 && millis() - dstLastDelay > dstDelay) {
+    Serial.println("MOVE DETECTED!");
+    dstLastDelay = millis();
+
+    digitalWrite(LED_PIN, HIGH);
+    delay(300);
+    digitalWrite(LED_PIN, LOW);
+
+    DynamicJsonDocument doc(256);
+    doc["device_id"] = ESP.getEfuseMac();
+    doc["type"] = "move";
+
+    String json;
+    serializeJson(doc, json);
+
+    webSocket.sendTXT(json);
+  }
+  lastDst = currDst;
 }
 
 void readTemp() {
