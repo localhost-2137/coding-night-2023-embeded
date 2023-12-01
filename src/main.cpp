@@ -3,22 +3,33 @@
 #include <DHT.h>
 #include <DHT_U.h>
 #include <WiFiManager.h> 
+#include <WebSocketsClient.h>
+#include <ArduinoJson.h>
 
 #define TRIG_PIN 2
 #define ECHO_PIN 4
 #define DHT_PIN 15
 
+void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 unsigned long measureDistance();
 String getChipID();
 void readTemp();
 
 DHT_Unified dht(DHT_PIN, DHT22);
+WebSocketsClient webSocket;
+
+float currentTemperature = -1.0f;
+float currentHumidity = -1.0f;
+
 unsigned long dhtDelay;
 unsigned long dhtLastRead;
 
 unsigned long lastDst = 1368;
 unsigned long dstDelay = 5000;
 unsigned long dstLastDelay;
+
+unsigned long sendDataDelay = 5000;
+unsigned long lastDataSent;
 
 void setup() {
   Serial.begin(115200);
@@ -32,6 +43,12 @@ void setup() {
   dhtLastRead = millis();
 
   WiFiManager wm;
+  WiFiManagerParameter custom_field;
+  String custom_html = "<br /> <h1 style=\"text-align: center;\">Device ID: " + getChipID() + "</h1>";
+  new (&custom_field) WiFiManagerParameter(custom_html.c_str());
+  
+  wm.addParameter(&custom_field);
+  wm.resetSettings();
 
   String ssid = "Smarty-" + getChipID();
   bool res = wm.autoConnect(ssid.c_str());
@@ -40,24 +57,70 @@ void setup() {
     ESP.restart();
   }
 
+  webSocket.begin("10.42.0.1", 8080, "/");
+  webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(5000);
+  webSocket.sendTXT("Hello from ESP32!");
+
+  configTime(3600, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
+
   lastDst = measureDistance();
-  dstLastDelay = 5000;
+  dstLastDelay = millis();
+  lastDataSent = millis();
+}
+
+void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
+  if (type == WStype_TEXT) {
+    // DynamicJsonDocument doc(2048);
+    // deserializeJson(doc, payload);
+
+    // Serial.printf("Received message: %s\n", doc["espId"].as<const char *>());
+    Serial.printf("Received message: %s\n", payload);
+  } else if (type == WStype_CONNECTED) {
+    Serial.println("Connected to WebSocket server");
+  } else if (type == WStype_DISCONNECTED) {
+    Serial.println("Disconnected from WebSocket server");
+  }
 }
 
 void loop() {
+  webSocket.loop();
+
   if (millis() - dhtLastRead >= dhtDelay) {
     readTemp();
   }
 
   unsigned long currDst = measureDistance();
   if (abs(lastDst - currDst * 1.0f) > 10 && millis() - dstLastDelay > dstDelay) {
-    dstLastDelay = millis();
     Serial.println("MOVE DETECTED!");
-  }
+    dstLastDelay = millis();
 
+    DynamicJsonDocument doc(256);
+    doc["deviceId"] = ESP.getEfuseMac();
+    doc["type"] = "move";
+
+    String json;
+    serializeJson(doc, json);
+
+    webSocket.sendTXT(json);
+  }
   lastDst = currDst;
-  // Serial.println(ESP.getEfuseMac());
-  // Serial.println(getChipID());
+
+  if (millis() - lastDataSent >= sendDataDelay) {
+    lastDataSent = millis();
+
+    DynamicJsonDocument doc(256);
+  
+    doc["deviceId"] = ESP.getEfuseMac();
+    doc["type"] = "temp";
+    doc["data"]["temp"] = currentTemperature;
+    doc["data"]["hum"] = currentHumidity;
+
+    String json;
+    serializeJson(doc, json);
+
+    webSocket.sendTXT(json);
+  }
 
   delay(50);
 }
@@ -72,6 +135,8 @@ void readTemp() {
     Serial.print(F("Temperature: "));
     Serial.print(event.temperature);
     Serial.println(F("°C"));
+
+    currentTemperature = event.temperature;
   }
 
   dht.humidity().getEvent(&event);
@@ -82,6 +147,8 @@ void readTemp() {
     Serial.print(F("Humidity: "));
     Serial.print(event.relative_humidity);
     Serial.println(F("%"));
+
+    currentHumidity = event.relative_humidity;
   }
 
   dhtLastRead = millis();
