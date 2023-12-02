@@ -169,11 +169,7 @@ void readTemp() {
   if (isnan(event.temperature)) {
     Serial.println(F("Error reading temperature!"));
   }
-  else {
-    Serial.print(F("Temperature: "));
-    Serial.print(event.temperature);
-    Serial.println(F("°C"));
-
+  else {  
     currentTemperature = event.temperature;
   }
 
@@ -182,10 +178,6 @@ void readTemp() {
     Serial.println(F("Error reading humidity!"));
   }
   else {
-    Serial.print(F("Humidity: "));
-    Serial.print(event.relative_humidity);
-    Serial.println(F("%"));
-
     currentHumidity = event.relative_humidity;
   }
 
