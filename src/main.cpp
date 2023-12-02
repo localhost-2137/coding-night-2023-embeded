@@ -39,7 +39,8 @@ unsigned long lastDataSent;
 
 double avgWattHours = 0.289351852;
 double currentWattHours = avgWattHours;
-bool roomPresence = false;
+unsigned long lastRoomPresence;
+long roomPresenceTimeout = 60000;
 
 void setup() {
   Serial.begin(115200);
@@ -68,7 +69,8 @@ void setup() {
     ESP.restart();
   }
 
-  webSocket.begin("10.42.0.1", 3000, "/ws");
+  String connectionUri = "/ws/" + String(ESP.getEfuseMac()); 
+  webSocket.begin("10.42.0.1", 3000, connectionUri);
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
   webSocket.sendTXT("Hello from ESP32!");
@@ -78,15 +80,20 @@ void setup() {
   lastDst = measureDistance();
   dstLastDelay = millis();
   lastDataSent = millis();
+  lastRoomPresence = millis();
 }
 
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
   if (type == WStype_TEXT) {
-    // DynamicJsonDocument doc(2048);
-    // deserializeJson(doc, payload);
+    DynamicJsonDocument doc(2048);
+    deserializeJson(doc, payload);
+
+    if (doc["type"] == "settings") {
+      roomPresenceTimeout = doc["data"]["presence_timeout"];
+    }
 
     // Serial.printf("Received message: %s\n", doc["espId"].as<const char *>());
-    Serial.printf("Received message: %s\n", payload);
+    // Serial.printf("Received message: %s\n", payload);
   } else if (type == WStype_CONNECTED) {
     Serial.println("Connected to WebSocket server");
   } else if (type == WStype_DISCONNECTED) {
@@ -124,8 +131,8 @@ void loop() {
 }
 
 void simulateWattHours() {
-  double randomInc = random(-5000, 5000) / 1000000.0;
-  avgWattHours = roomPresence ? CROUDED_ROOM_WH : EMPTY_ROOM_WH;
+  double randomInc = random(-500, 500) / 1000000.0;
+  avgWattHours = millis() - lastRoomPresence < roomPresenceTimeout ? CROUDED_ROOM_WH : EMPTY_ROOM_WH;
   if ((currentWattHours > avgWattHours && randomInc > 0) || (currentWattHours < avgWattHours && randomInc < 0)) {
     randomInc *= -1;
   }
@@ -138,6 +145,7 @@ void moveDetection() {
   if (abs(lastDst - currDst * 1.0f) > 10 && millis() - dstLastDelay > dstDelay) {
     Serial.println("MOVE DETECTED!");
     dstLastDelay = millis();
+    lastRoomPresence = millis();
 
     digitalWrite(LED_PIN, HIGH);
     delay(300);
