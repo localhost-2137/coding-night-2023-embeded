@@ -56,7 +56,7 @@ void setup() {
 
   WiFiManager wm;
   WiFiManagerParameter custom_field;
-  String custom_html = "<br /> <h1 style=\"text-align: center;\">Device ID: " + getChipID() + "</h1>";
+  String custom_html = "<br /> <h1 style=\"text-align: center;\">Device ID: " + String(ESP.getEfuseMac()) + "</h1>";
   new (&custom_field) WiFiManagerParameter(custom_html.c_str());
   
   wm.addParameter(&custom_field);
